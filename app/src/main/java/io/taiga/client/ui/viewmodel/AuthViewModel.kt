@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+const val DEFAULT_BASE_URL = "https://api.taiga.io/api/v1/"
+
 data class AuthUiState(
     val isLoading: Boolean = true,
     val inProgress: Boolean = false,
@@ -114,7 +116,4 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    companion object {
-        private const val DEFAULT_BASE_URL = "https://api.taiga.io/api/v1/"
-    }
 }
