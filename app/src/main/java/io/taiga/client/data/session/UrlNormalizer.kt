@@ -13,7 +13,10 @@ fun normalizeTaigaApiBaseUrl(value: String): String {
         else -> "https://$trimmed"
     }
 
-    val withoutTrailingSlash = withScheme.trimEnd('/')
+    // Rewrite tree.taiga.io -> api.taiga.io (web URL to API URL)
+    val withApiHost = withScheme.replace("//tree.taiga.io", "//api.taiga.io")
+
+    val withoutTrailingSlash = withApiHost.trimEnd('/')
     return if (withoutTrailingSlash.endsWith("/api/v1")) {
         "$withoutTrailingSlash/"
     } else {

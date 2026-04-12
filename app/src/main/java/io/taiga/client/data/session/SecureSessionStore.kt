@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.squareup.moshi.Moshi
 import dagger.hilt.android.qualifiers.ApplicationContext
+import io.taiga.client.data.auth.AuthToken
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +16,7 @@ import javax.inject.Singleton
 @Singleton
 class SecureSessionStore @Inject constructor(
     @ApplicationContext context: Context,
+    private val moshi: Moshi,
 ) {
     private val preferences: SharedPreferences = EncryptedSharedPreferences.create(
         context,
@@ -25,59 +28,107 @@ class SecureSessionStore @Inject constructor(
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
 
-    private val sessionState = MutableStateFlow(readSessionFromPreferences())
+    private val authTokenAdapter = moshi.adapter(AuthToken::class.java)
 
-    fun observeSession(): StateFlow<UserSession?> = sessionState.asStateFlow()
+    private val _currentBaseUrl = MutableStateFlow(readActiveBaseUrl())
+    val currentBaseUrl: StateFlow<String?> = _currentBaseUrl.asStateFlow()
 
-    fun readSession(): UserSession? {
-        return readSessionFromPreferences()
+    private val _currentToken = MutableStateFlow(loadTokenForBaseUrl(readActiveBaseUrl()))
+    val currentToken: StateFlow<AuthToken?> = _currentToken.asStateFlow()
+
+    /**
+     * Get the active base URL that was last set.
+     */
+    fun getActiveBaseUrl(): String? {
+        return readActiveBaseUrl()
     }
 
-    private fun readSessionFromPreferences(): UserSession? {
-        val baseUrl = preferences.getString(KEY_BASE_URL, null) ?: return null
-        val id = preferences.getLong(KEY_ID, -1L)
-        val username = preferences.getString(KEY_USERNAME, null) ?: return null
-        val authToken = preferences.getString(KEY_AUTH_TOKEN, null) ?: return null
-        val refreshToken = preferences.getString(KEY_REFRESH_TOKEN, null) ?: return null
-
-        return UserSession(
-            baseUrl = baseUrl,
-            id = id,
-            username = username,
-            displayName = preferences.getString(KEY_DISPLAY_NAME, null),
-            email = preferences.getString(KEY_EMAIL, null),
-            authToken = authToken,
-            refreshToken = refreshToken,
-        )
+    /**
+     * Read the currently active base URL from preferences.
+     */
+    private fun readActiveBaseUrl(): String? {
+        return preferences.getString(KEY_ACTIVE_BASE_URL, null)
     }
 
-    fun saveSession(session: UserSession) {
+    /**
+     * Load token for a specific base URL.
+     * Returns null if no token exists for that URL.
+     */
+    fun loadTokenForBaseUrl(baseUrl: String?): AuthToken? {
+        if (baseUrl.isNullOrBlank()) return null
+        val normalizedUrl = normalizeTaigaApiBaseUrl(baseUrl)
+        val tokenJson = preferences.getString(tokenKeyForBaseUrl(normalizedUrl), null) ?: return null
+        return runCatching { authTokenAdapter.fromJson(tokenJson) }.getOrNull()
+    }
+
+    /**
+     * Save token for a specific base URL.
+     * Also sets this as the active base URL.
+     */
+    fun saveToken(baseUrl: String, token: AuthToken) {
+        val normalizedUrl = normalizeTaigaApiBaseUrl(baseUrl)
+        val tokenJson = authTokenAdapter.toJson(token)
+        
         preferences.edit()
-            .putString(KEY_BASE_URL, session.baseUrl)
-            .putLong(KEY_ID, session.id)
-            .putString(KEY_USERNAME, session.username)
-            .putString(KEY_DISPLAY_NAME, session.displayName)
-            .putString(KEY_EMAIL, session.email)
-            .putString(KEY_AUTH_TOKEN, session.authToken)
-            .putString(KEY_REFRESH_TOKEN, session.refreshToken)
+            .putString(KEY_ACTIVE_BASE_URL, normalizedUrl)
+            .putString(tokenKeyForBaseUrl(normalizedUrl), tokenJson)
             .apply()
-
-        sessionState.value = session
+        
+        _currentBaseUrl.value = normalizedUrl
+        _currentToken.value = token
     }
 
-    fun clear() {
+    /**
+     * Clear session for a specific base URL.
+     */
+    fun clearSession(baseUrl: String) {
+        val normalizedUrl = normalizeTaigaApiBaseUrl(baseUrl)
+        preferences.edit()
+            .remove(tokenKeyForBaseUrl(normalizedUrl))
+            .apply()
+        
+        if (_currentBaseUrl.value == normalizedUrl) {
+            _currentToken.value = null
+        }
+    }
+
+    /**
+     * Clear all sessions and active base URL.
+     */
+    fun clearAll() {
         preferences.edit().clear().apply()
-        sessionState.value = null
+        _currentBaseUrl.value = null
+        _currentToken.value = null
+    }
+
+    /**
+     * Switch to a different base URL.
+     * Returns the token for the new base URL if it exists.
+     */
+    fun switchBaseUrl(baseUrl: String): AuthToken? {
+        val normalizedUrl = normalizeTaigaApiBaseUrl(baseUrl)
+        val token = loadTokenForBaseUrl(normalizedUrl)
+        
+        preferences.edit()
+            .putString(KEY_ACTIVE_BASE_URL, normalizedUrl)
+            .apply()
+        
+        _currentBaseUrl.value = normalizedUrl
+        _currentToken.value = token
+        
+        return token
+    }
+
+    /**
+     * Generate the storage key for a token given a normalized base URL.
+     */
+    private fun tokenKeyForBaseUrl(normalizedBaseUrl: String): String {
+        return "${KEY_TOKEN_PREFIX}${normalizedBaseUrl}"
     }
 
     companion object {
         private const val FILE_NAME = "taiga_secure_session"
-        private const val KEY_BASE_URL = "base_url"
-        private const val KEY_ID = "id"
-        private const val KEY_USERNAME = "username"
-        private const val KEY_DISPLAY_NAME = "display_name"
-        private const val KEY_EMAIL = "email"
-        private const val KEY_AUTH_TOKEN = "auth_token"
-        private const val KEY_REFRESH_TOKEN = "refresh_token"
+        private const val KEY_ACTIVE_BASE_URL = "active_base_url"
+        private const val KEY_TOKEN_PREFIX = "token_for_"
     }
 }

@@ -5,12 +5,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavType
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import io.taiga.client.data.auth.AuthState
 import io.taiga.client.ui.navigation.Routes
 import io.taiga.client.ui.screen.IssueDetailScreen
 import io.taiga.client.ui.screen.IssueListScreen
@@ -24,13 +25,17 @@ import io.taiga.client.ui.viewmodel.ProjectListViewModel
 @Composable
 fun AppRoot(authViewModel: AuthViewModel = hiltViewModel()) {
     val navController = rememberNavController()
-    val state by authViewModel.uiState.collectAsStateWithLifecycle()
+    val authState by authViewModel.authState.collectAsStateWithLifecycle()
+    val formState by authViewModel.formState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(state.session) {
-        val target = if (state.session == null) Routes.LOGIN else Routes.PROJECTS
+    // Navigate based on authentication state
+    LaunchedEffect(authState) {
+        val isAuthenticated = authState is AuthState.Authenticated
+        val targetRoute = if (isAuthenticated) Routes.PROJECTS else Routes.LOGIN
+
         val currentRoute = navController.currentBackStackEntry?.destination?.route
-        if (currentRoute != target) {
-            navController.navigate(target) {
+        if (currentRoute != targetRoute) {
+            navController.navigate(targetRoute) {
                 popUpTo(navController.graph.findStartDestination().id) {
                     inclusive = true
                 }
@@ -45,13 +50,18 @@ fun AppRoot(authViewModel: AuthViewModel = hiltViewModel()) {
     ) {
         composable(Routes.LOGIN) {
             LoginScreen(
-                state = state,
+                authState = authState,
+                formState = formState,
                 onBaseUrlChanged = authViewModel::onBaseUrlChanged,
                 onUsernameChanged = authViewModel::onUsernameChanged,
                 onPasswordChanged = authViewModel::onPasswordChanged,
-                onLoginClick = authViewModel::login,
+                onGitHubCodeChanged = authViewModel::onGitHubCodeChanged,
+                onNormalLoginClick = authViewModel::login,
+                onGitHubLoginClick = authViewModel::loginWithGitHub,
+                onClearError = authViewModel::clearError,
             )
         }
+
         composable(Routes.PROJECTS) {
             val projectListViewModel: ProjectListViewModel = hiltViewModel()
             val projectState by projectListViewModel.uiState.collectAsStateWithLifecycle()
@@ -67,6 +77,7 @@ fun AppRoot(authViewModel: AuthViewModel = hiltViewModel()) {
                 onVisibilityFilterChanged = projectListViewModel::onVisibilityFilterChanged,
             )
         }
+
         composable(
             route = Routes.ISSUES,
             arguments = listOf(
@@ -85,6 +96,7 @@ fun AppRoot(authViewModel: AuthViewModel = hiltViewModel()) {
                 onIssueClick = { issue -> navController.navigate(Routes.issueDetail(issue.id)) },
             )
         }
+
         composable(
             route = Routes.ISSUE_DETAIL,
             arguments = listOf(
