@@ -6,13 +6,25 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import io.taiga.client.data.preferences.AppearanceMode
 
-private val LightColors = lightColorScheme(
-    primary = TaigaPrimary,
-    onPrimary = TaigaOnPrimary,
-    secondary = TaigaSecondary,
+val accentPresets: List<Color> = listOf(
+    Color(0xFF145A6C), // Taiga teal (default)
+    Color(0xFFD97706), // Amber
+    Color(0xFF7C3AED), // Violet
+    Color(0xFFDC2626), // Red
+    Color(0xFF16A34A), // Green
+    Color(0xFFDB2777), // Pink
+    Color(0xFF0284C7), // Sky blue
+    Color(0xFF92400E), // Brown
+)
+
+private fun lightColors(primary: Color) = lightColorScheme(
+    primary = primary,
+    onPrimary = Color(0xFFF8FAFC),
+    secondary = primary.copy(red = primary.red * 0.9f, green = primary.green * 0.85f, blue = primary.blue * 1.05f),
     onSecondary = Color.White,
-    tertiary = TaigaTertiary,
+    tertiary = primary.copy(red = primary.red * 0.8f, green = primary.green * 1.1f, blue = primary.blue * 0.9f),
     onTertiary = Color.White,
     background = TaigaBackground,
     onBackground = Color(0xFF111827),
@@ -23,11 +35,11 @@ private val LightColors = lightColorScheme(
     error = TaigaError,
 )
 
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFF7DD3FC),
+private fun darkColors(primary: Color) = darkColorScheme(
+    primary = primary,
     onPrimary = Color(0xFF082F49),
-    secondary = Color(0xFFFBBF24),
-    tertiary = Color(0xFF5EEAD4),
+    secondary = primary.copy(red = primary.red * 1.1f, green = primary.green * 0.95f, blue = primary.blue * 0.9f),
+    tertiary = primary.copy(red = primary.red * 0.9f, green = primary.green * 1.1f, blue = primary.blue * 1.05f),
     background = Color(0xFF0F172A),
     onBackground = Color(0xFFE2E8F0),
     surface = Color(0xFF111827),
@@ -38,9 +50,21 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun TaigaClientTheme(content: @Composable () -> Unit) {
+fun TaigaClientTheme(
+    appearanceMode: AppearanceMode = AppearanceMode.SYSTEM,
+    accentColorIndex: Int = 0,
+    content: @Composable () -> Unit,
+) {
+    val darkTheme = when (appearanceMode) {
+        AppearanceMode.SYSTEM -> isSystemInDarkTheme()
+        AppearanceMode.LIGHT -> false
+        AppearanceMode.DARK -> true
+    }
+    val accentColor = accentPresets.getOrElse(accentColorIndex) { accentPresets[0] }
+    val colorScheme = if (darkTheme) darkColors(accentColor) else lightColors(accentColor)
+
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
+        colorScheme = colorScheme,
         typography = Typography,
         shapes = Shapes,
         content = content,

@@ -7,6 +7,8 @@ import dagger.hilt.components.SingletonComponent
 import io.taiga.client.data.auth.AuthApi
 import io.taiga.client.data.auth.AuthRepository
 import io.taiga.client.data.auth.AuthRepositoryImpl
+import io.taiga.client.data.items.ItemsRepository
+import io.taiga.client.data.items.ItemsRepositoryImpl
 import io.taiga.client.data.session.SecureSessionStore
 import io.taiga.client.data.workspace.TaigaWorkspaceRepository
 import io.taiga.client.data.workspace.TaigaWorkspaceRepositoryImpl
@@ -33,4 +35,10 @@ object RepositoryModule {
     fun provideWorkspaceRepository(
         impl: TaigaWorkspaceRepositoryImpl,
     ): TaigaWorkspaceRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideItemsRepository(
+        impl: ItemsRepositoryImpl,
+    ): ItemsRepository = impl
 }
