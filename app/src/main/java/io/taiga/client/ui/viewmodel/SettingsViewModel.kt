@@ -6,17 +6,18 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.taiga.client.data.auth.AuthRepository
+import io.taiga.client.data.lock.AppLockRepository
 import io.taiga.client.data.preferences.AppearanceMode
 import io.taiga.client.data.preferences.AppPreferencesRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.unifiedpush.android.connector.UnifiedPush
 import javax.inject.Inject
 
-enum class SettingsPanel { Root, Appearance, AccentColor, Notifications, Support }
+enum class SettingsPanel { Root, Appearance, AccentColor, Notifications, Support, Security, SetupPin }
 
 data class SettingsUiState(
     val appearanceMode: AppearanceMode = AppearanceMode.SYSTEM,
@@ -27,16 +28,24 @@ data class SettingsUiState(
     val localNotificationsEnabled: Boolean = true,
     val unifiedPushEnabled: Boolean = false,
     val unifiedPushDistributorAvailable: Boolean = false,
+    val isPinEnabled: Boolean = false,
+    val isBiometricEnabled: Boolean = false,
+    val isBiometricAvailable: Boolean = false,
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val prefs: AppPreferencesRepository,
     private val authRepository: AuthRepository,
+    private val appLockRepository: AppLockRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
-    val uiState: StateFlow<SettingsUiState> = prefs.preferencesFlow.map { p ->
+    val uiState: StateFlow<SettingsUiState> = combine(
+        prefs.preferencesFlow,
+        appLockRepository.pinEnabledFlow,
+        appLockRepository.biometricEnabledFlow,
+    ) { p, pinEnabled, biometricEnabled ->
         SettingsUiState(
             appearanceMode = p.appearanceMode,
             accentColorIndex = p.accentColorIndex,
@@ -46,6 +55,9 @@ class SettingsViewModel @Inject constructor(
             localNotificationsEnabled = p.localNotificationsEnabled,
             unifiedPushEnabled = p.unifiedPushEnabled,
             unifiedPushDistributorAvailable = UnifiedPush.getDistributors(context).isNotEmpty(),
+            isPinEnabled = pinEnabled,
+            isBiometricEnabled = biometricEnabled,
+            isBiometricAvailable = appLockRepository.isBiometricAvailable(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 
@@ -75,6 +87,18 @@ class SettingsViewModel @Inject constructor(
 
     fun setUnifiedPushEnabled(enabled: Boolean) {
         viewModelScope.launch { prefs.setUnifiedPushEnabled(enabled) }
+    }
+
+    fun setupPin(pin: String) {
+        viewModelScope.launch { appLockRepository.setupPin(pin) }
+    }
+
+    fun removePin() {
+        viewModelScope.launch { appLockRepository.removePin() }
+    }
+
+    fun setBiometricEnabled(enabled: Boolean) {
+        viewModelScope.launch { appLockRepository.setBiometricEnabled(enabled) }
     }
 
     fun logout() {

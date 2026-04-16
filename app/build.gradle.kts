@@ -87,6 +87,7 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.unifiedpush.android:connector:2.5.0")
+    implementation("androidx.biometric:biometric:1.1.0")
 }
 
 configurations.configureEach {

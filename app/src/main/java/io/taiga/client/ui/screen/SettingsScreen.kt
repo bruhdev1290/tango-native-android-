@@ -47,9 +47,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.taiga.client.data.preferences.AppearanceMode
@@ -112,6 +115,8 @@ fun SettingsScreen(
                             SettingsPanel.AccentColor -> "Accent Color"
                             SettingsPanel.Notifications -> "Notifications"
                             SettingsPanel.Support -> "Support"
+                            SettingsPanel.Security -> "Security"
+                            SettingsPanel.SetupPin -> "Set PIN"
                         }
                     )
                 },
@@ -159,6 +164,21 @@ fun SettingsScreen(
                 onUnifiedPushChange = viewModel::setUnifiedPushEnabled,
             )
             SettingsPanel.Support -> SupportPanel(modifier = Modifier.padding(innerPadding))
+            SettingsPanel.Security -> SecurityPanel(
+                modifier = Modifier.padding(innerPadding),
+                isPinEnabled = state.isPinEnabled,
+                isBiometricEnabled = state.isBiometricEnabled,
+                isBiometricAvailable = state.isBiometricAvailable,
+                onEnableAppLock = { currentPanel = SettingsPanel.SetupPin },
+                onDisableAppLock = viewModel::removePin,
+                onSetBiometric = viewModel::setBiometricEnabled,
+                onChangePinClick = { currentPanel = SettingsPanel.SetupPin },
+            )
+            SettingsPanel.SetupPin -> SetupPinPanel(
+                modifier = Modifier.padding(innerPadding),
+                onPinSaved = viewModel::setupPin,
+                onDone = { currentPanel = SettingsPanel.Security },
+            )
         }
     }
 }
@@ -194,6 +214,15 @@ private fun SettingsRootPanel(
             trailingContent = { Icon(Icons.Default.KeyboardArrowRight, null) },
             modifier = Modifier.clickable { onNavigateTo(SettingsPanel.Notifications) },
         )
+
+        Spacer(Modifier.height(16.dp))
+        SettingsSectionHeader("Security")
+        ListItem(
+            headlineContent = { Text("App Lock") },
+            trailingContent = { Icon(Icons.Default.KeyboardArrowRight, null) },
+            modifier = Modifier.clickable { onNavigateTo(SettingsPanel.Security) },
+        )
+        Divider(modifier = Modifier.padding(start = 16.dp))
 
         Spacer(Modifier.height(16.dp))
         SettingsSectionHeader("Help")
@@ -487,6 +516,210 @@ private fun SupportPanel(modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Send Support Email")
+        }
+    }
+}
+
+@Composable
+private fun SecurityPanel(
+    modifier: Modifier = Modifier,
+    isPinEnabled: Boolean,
+    isBiometricEnabled: Boolean,
+    isBiometricAvailable: Boolean,
+    onEnableAppLock: () -> Unit,
+    onDisableAppLock: () -> Unit,
+    onSetBiometric: (Boolean) -> Unit,
+    onChangePinClick: () -> Unit,
+) {
+    var showDisableDialog by remember { mutableStateOf(false) }
+
+    if (showDisableDialog) {
+        AlertDialog(
+            onDismissRequest = { showDisableDialog = false },
+            title = { Text("Disable App Lock") },
+            text = { Text("This will remove your PIN and disable app lock.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDisableDialog = false
+                    onDisableAppLock()
+                }) { Text("Disable", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDisableDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        if (!isPinEnabled) {
+            ListItem(
+                headlineContent = { Text("Enable App Lock") },
+                supportingContent = { Text("Set a PIN to protect the app") },
+                trailingContent = { Icon(Icons.Default.KeyboardArrowRight, null) },
+                modifier = Modifier.clickable { onEnableAppLock() },
+            )
+        } else {
+            ListItem(
+                headlineContent = { Text("App Lock") },
+                supportingContent = { Text("PIN is set — tap to disable") },
+                trailingContent = {
+                    Switch(checked = true, onCheckedChange = { showDisableDialog = true })
+                },
+                modifier = Modifier.clickable { showDisableDialog = true },
+            )
+            Divider(modifier = Modifier.padding(start = 16.dp))
+            ListItem(
+                headlineContent = { Text("Change PIN") },
+                trailingContent = { Icon(Icons.Default.KeyboardArrowRight, null) },
+                modifier = Modifier.clickable { onChangePinClick() },
+            )
+            if (isBiometricAvailable) {
+                Divider(modifier = Modifier.padding(start = 16.dp))
+                ListItem(
+                    headlineContent = { Text("Use Biometric") },
+                    supportingContent = { Text("Unlock with fingerprint or face") },
+                    trailingContent = {
+                        Switch(checked = isBiometricEnabled, onCheckedChange = onSetBiometric)
+                    },
+                    modifier = Modifier.clickable { onSetBiometric(!isBiometricEnabled) },
+                )
+            }
+        }
+    }
+}
+
+private enum class PinSetupStep { ENTER, CONFIRM }
+
+@Composable
+private fun SetupPinPanel(
+    modifier: Modifier = Modifier,
+    onPinSaved: (String) -> Unit,
+    onDone: () -> Unit,
+) {
+    var step by rememberSaveable { mutableStateOf(PinSetupStep.ENTER) }
+    var firstPin by rememberSaveable { mutableStateOf("") }
+    var currentInput by rememberSaveable { mutableStateOf("") }
+    var showError by remember { mutableStateOf(false) }
+    var saved by remember { mutableStateOf(false) }
+
+    val pinLength = 6
+
+    // After showing success, navigate back
+    LaunchedEffect(saved) {
+        if (saved) {
+            kotlinx.coroutines.delay(1000)
+            onDone()
+        }
+    }
+
+    fun handleDigit(d: String) {
+        if (saved) return
+        if (currentInput.length < pinLength) currentInput += d
+        if (currentInput.length == pinLength) {
+            when (step) {
+                PinSetupStep.ENTER -> {
+                    firstPin = currentInput
+                    currentInput = ""
+                    step = PinSetupStep.CONFIRM
+                    showError = false
+                }
+                PinSetupStep.CONFIRM -> {
+                    if (currentInput == firstPin) {
+                        onPinSaved(currentInput)
+                        saved = true
+                    } else {
+                        showError = true
+                        currentInput = ""
+                        firstPin = ""
+                        step = PinSetupStep.ENTER
+                    }
+                }
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        if (saved) {
+            Text(
+                text = "PIN set successfully!",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+        } else {
+            Text(
+                text = when (step) {
+                    PinSetupStep.ENTER -> "Enter a new PIN"
+                    PinSetupStep.CONFIRM -> "Confirm your PIN"
+                },
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(24.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                repeat(pinLength) { index ->
+                    val isFilled = index < currentInput.length
+                    Box(
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isFilled) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outlineVariant
+                            ),
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            if (showError) {
+                Text(
+                    text = "PINs don't match. Try again.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                Spacer(Modifier.height(20.dp))
+            }
+            Spacer(Modifier.height(24.dp))
+
+            val rows = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"))
+            rows.forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    row.forEach { digit ->
+                        TextButton(
+                            onClick = { handleDigit(digit) },
+                            modifier = Modifier.size(72.dp),
+                            shape = CircleShape,
+                        ) {
+                            Text(digit, fontSize = 22.sp, color = MaterialTheme.colorScheme.onBackground)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Spacer(Modifier.size(72.dp))
+                TextButton(
+                    onClick = { handleDigit("0") },
+                    modifier = Modifier.size(72.dp),
+                    shape = CircleShape,
+                ) {
+                    Text("0", fontSize = 22.sp, color = MaterialTheme.colorScheme.onBackground)
+                }
+                TextButton(
+                    onClick = { if (currentInput.isNotEmpty()) currentInput = currentInput.dropLast(1) },
+                    modifier = Modifier.size(72.dp),
+                    shape = CircleShape,
+                ) {
+                    Text("⌫", fontSize = 22.sp, color = MaterialTheme.colorScheme.onBackground)
+                }
+            }
         }
     }
 }

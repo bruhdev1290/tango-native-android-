@@ -9,6 +9,8 @@ import io.taiga.client.data.auth.AuthRepository
 import io.taiga.client.data.auth.AuthRepositoryImpl
 import io.taiga.client.data.items.ItemsRepository
 import io.taiga.client.data.items.ItemsRepositoryImpl
+import io.taiga.client.data.lock.AppLockRepository
+import io.taiga.client.data.lock.AppLockRepositoryImpl
 import io.taiga.client.data.session.SecureSessionStore
 import io.taiga.client.data.workspace.TaigaWorkspaceRepository
 import io.taiga.client.data.workspace.TaigaWorkspaceRepositoryImpl
@@ -41,4 +43,10 @@ object RepositoryModule {
     fun provideItemsRepository(
         impl: ItemsRepositoryImpl,
     ): ItemsRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideAppLockRepository(
+        impl: AppLockRepositoryImpl,
+    ): AppLockRepository = impl
 }
